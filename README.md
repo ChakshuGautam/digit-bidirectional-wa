@@ -1,171 +1,222 @@
-# WhatsApp Bidirectional Notifications
+# DIGIT WhatsApp Notification Services
 
-DIGIT WhatsApp notification system using Novu for outbound delivery.
+Outbound WhatsApp notification system for DIGIT platform using Novu for orchestration and Baileys for WhatsApp Web API.
+
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Services](#services)
+- [Setup Instructions](#setup-instructions)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
+
+## Prerequisites
+
+- **Docker** (20.10+) and **Docker Compose** (v2+)
+- **Tilt** (for local development with hot-reload)
+- **Node.js** (18+) - only if running services outside Docker
+- **Git**
+
+### Install Tilt (macOS/Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+```
+
+## Quick Start
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/ChakshuGautam/digit-bidirectional-wa.git
+cd digit-bidirectional-wa
+
+# 2. Create environment file
+cp .env.example .env
+
+# 3. Start all services with Docker Compose
+docker compose up -d
+
+# 4. (Optional) Start Tilt for hot-reload development
+tilt up
+
+# 5. Seed initial configs
+./seed-configs.sh
+
+# 6. Connect WhatsApp - Open in browser:
+#    http://localhost:18203/baileys/qr/page
+#    Scan QR code with WhatsApp mobile app
+
+# 7. Run E2E tests to verify setup
+./scripts/e2e-tests.sh
+
+# 8. Test sending a notification
+curl -X POST http://localhost:18202/novu-bridge/v1/_trigger \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventType": "PGR_CREATE",
+    "tenantId": "pg.citya",
+    "recipient": {"phone": "919876543210"},
+    "data": {
+      "serviceRequestId": "PGR-2026-00001",
+      "serviceCode": "StreetLight",
+      "address": "Main Road"
+    }
+  }'
+```
 
 ## Architecture
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │   PGR Service   │────▶│     Kafka        │────▶│  Novu Bridge    │
+│  (DIGIT Core)   │     │   (Events)       │     │ (Orchestrator)  │
 └─────────────────┘     └──────────────────┘     └────────┬────────┘
                                                           │
-                        ┌─────────────────────────────────┼─────────────────────────────────┐
-                        │                                 │                                 │
-                        ▼                                 ▼                                 ▼
-                ┌───────────────┐              ┌──────────────────┐              ┌─────────────────┐
-                │ Config Service│              │ User Preferences │              │   Novu API      │
-                │  (Templates)  │              │    (Consent)     │              │  (WhatsApp)     │
-                └───────────────┘              └──────────────────┘              └─────────────────┘
+              ┌───────────────────────────────────────────┼───────────────────┐
+              │                                           │                   │
+              ▼                                           ▼                   ▼
+      ┌───────────────┐                        ┌──────────────────┐   ┌─────────────┐
+      │ Config Service│                        │ User Preferences │   │   Baileys   │
+      │  (Templates)  │                        │    (Consent)     │   │ (WhatsApp)  │
+      └───────────────┘                        └──────────────────┘   └─────────────┘
 ```
+
+### Notification Flow (11 Steps)
+
+1. **Parse Event** - Receive from Kafka or manual trigger
+2. **Check Channel Enablement** - Is WhatsApp enabled for this event?
+3. **Check Feature Flag** - Is WhatsApp outbound globally enabled?
+4. **Check Quiet Hours** - Defer if within quiet hours
+5. **Rate Limiting** - Prevent spam
+6. **Check User Consent** - User must have granted WhatsApp consent
+7. **Resolve Language** - Get user's preferred language
+8. **Get Template Binding** - Map event to template
+9. **Fetch Template** - Get localized template content
+10. **Render Message** - Apply Handlebars templating
+11. **Send via Baileys** - Deliver to WhatsApp
 
 ## Services
 
 | Service | Port | Description |
 |---------|------|-------------|
-| digit-user-preferences | 18200 | User consent and language preferences |
-| digit-config-service | 18201 | Templates, policies, and notification configs |
-| digit-novu-bridge | 18202 | Kafka consumer, policy enforcement, Novu triggering |
-| baileys-provider | 18203 | WhatsApp Personal via Baileys (for local testing) |
+| **digit-novu-bridge** | 18202 | Kafka consumer, notification orchestration |
+| **digit-config-service** | 18201 | Templates, policies, event-channel mappings |
+| **digit-user-preferences** | 18200 | User consent and language preferences |
+| **baileys-provider** | 18203 | WhatsApp Web API via Baileys |
 
-## Novu Infrastructure
+### Infrastructure Services
 
 | Service | Port | Description |
 |---------|------|-------------|
-| novu-api | 13000 | Novu REST API |
-| novu-web | 14200 | Novu Dashboard (UI) |
-| novu-ws | 13002 | WebSocket server |
-| novu-mongodb | 27017 | Novu database |
+| Postgres | 15432 | Database for configs and preferences |
+| Redis | 16379 | Caching |
+| Kafka | 19092 | Event streaming |
+| Kong | 18000 | API Gateway |
+| Novu API | 13000 | Notification orchestration API |
+| Novu Dashboard | 14200 | Novu web UI |
 
-## Quick Start
+## Setup Instructions
+
+### Step 1: Environment Configuration
 
 ```bash
-# From the main project directory
-cd /root/code/digit-2.9lts-core-storm
-
-# Start Tilt (includes all services)
-tilt up
-
-# Access services:
-# - Novu Dashboard: http://localhost:14200
-# - User Preferences: http://localhost:18200/user-preferences/health
-# - Config Service: http://localhost:18201/configs/health
-# - Novu Bridge: http://localhost:18202/novu-bridge/health
+cp .env.example .env
 ```
 
-## Hot Reload
+Edit `.env` as needed:
 
-The three WhatsApp services have hot-reload enabled:
-- Edit files in `whatsapp/services/*/src/`
-- Changes auto-reload via `tsx watch`
+```bash
+# Novu API Key (get from Novu dashboard after first login)
+NOVU_API_KEY=your-api-key-here
 
-## API Examples
+# Notification mode
+USE_NOVU_TEMPLATES=false  # Use config service templates
+USE_BAILEYS=true          # Send via Baileys (local dev)
 
-### Create User Preference (Consent)
+# Baileys mode
+MOCK_MODE=false           # Set true to log messages without sending
+```
+
+### Step 2: Start Services
+
+**Option A: Docker Compose only**
+```bash
+docker compose up -d
+```
+
+**Option B: Docker Compose + Tilt (recommended for development)**
+```bash
+docker compose up -d
+tilt up
+```
+
+Tilt provides:
+- Hot-reload for all TypeScript services
+- Unified dashboard at http://localhost:10350
+- Health monitoring
+- One-click service restarts
+
+### Step 3: Seed Configuration Data
+
+```bash
+./seed-configs.sh
+```
+
+This creates:
+- Event-to-channel mappings (EVENT_CHANNELS)
+- Feature flags (FEATURE_FLAGS)
+- Delivery guardrails (rate limits, quiet hours)
+- Template bindings
+- PGR notification templates
+
+### Step 4: Connect WhatsApp
+
+1. Open http://localhost:18203/baileys/qr/page
+2. On your phone: WhatsApp → Settings → Linked Devices → Link a Device
+3. Scan the QR code
+4. Wait for "Connected" message
+
+The session is persisted - you won't need to re-scan after restarts.
+
+### Step 5: Create Test User with Consent
+
 ```bash
 curl -X POST http://localhost:18200/user-preferences/v1/_upsert \
   -H "Content-Type: application/json" \
   -d '{
-    "requestInfo": {},
     "preference": {
-      "userId": "user-123",
+      "userId": "test-user",
       "tenantId": "pg.citya",
       "preferenceCode": "USER_NOTIFICATION_PREFERENCES",
       "payload": {
         "preferredLanguage": "en_IN",
         "consent": {
-          "WHATSAPP": { "status": "GRANTED", "scope": "GLOBAL" }
+          "WHATSAPP": {
+            "status": "GRANTED",
+            "grantedAt": "2026-01-01T00:00:00.000Z",
+            "method": "explicit"
+          }
+        },
+        "channels": {
+          "WHATSAPP": {"enabled": true, "phone": "919876543210"}
         }
       }
     }
   }'
 ```
 
-### Create Config (Template)
-```bash
-curl -X POST http://localhost:18201/configs/v1/_create \
-  -H "Content-Type: application/json" \
-  -d '{
-    "requestInfo": {},
-    "config": {
-      "tenantId": "pg.citya",
-      "namespace": "notification-orchestrator",
-      "configName": "PGR Created Template",
-      "configCode": "TEMPLATE_PGR_CREATED",
-      "version": "1.0.0",
-      "status": "ACTIVE",
-      "content": {
-        "templates": {
-          "en_IN": "Your complaint {{complaintNumber}} has been registered. Track at: {{trackingUrl}}",
-          "hi_IN": "आपकी शिकायत {{complaintNumber}} दर्ज हो गई है। ट्रैक करें: {{trackingUrl}}"
-        }
-      }
-    }
-  }'
-```
-
-### Trigger Notification (Manual Test)
-```bash
-curl -X POST http://localhost:18202/novu-bridge/v1/_trigger \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "PGR_CREATED",
-    "tenantId": "pg.citya",
-    "recipient": {
-      "userId": "user-123",
-      "phone": "+919876543210"
-    },
-    "data": {
-      "complaintNumber": "PGR-2026-001234",
-      "trackingUrl": "https://pgr.example.com/track/001234"
-    }
-  }'
-```
-
-## Baileys Provider (Local WhatsApp Testing)
-
-The Baileys provider allows you to send WhatsApp messages using your personal WhatsApp account for testing - no WhatsApp Business API required.
-
-### First-Time Setup
-
-1. Start Tilt: `tilt up`
-2. Open QR page: http://localhost:18203/baileys/qr/page
-3. Open WhatsApp on your phone → Settings → Linked Devices → Link a Device
-4. Scan the QR code
-5. You're connected! Session is persisted (no re-scan needed after restart)
-
-### Baileys Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/baileys/health` | GET | Health check |
-| `/baileys/qr/page` | GET | QR code page (scan to authenticate) |
-| `/baileys/qr` | GET | QR code as JSON (data URL) |
-| `/baileys/status` | GET | Connection status |
-| `/baileys/send` | POST | Send message: `{ to: "+919876543210", content: "Hello" }` |
-| `/baileys/disconnect` | POST | Logout from WhatsApp |
-| `/baileys/reconnect` | POST | Force reconnection |
-
-### Testing with Baileys
+### Step 6: Verify Setup
 
 ```bash
-# Check status
-curl http://localhost:18203/baileys/status
+# Run E2E tests
+./scripts/e2e-tests.sh
 
-# Send message to yourself
-curl -X POST http://localhost:18203/baileys/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "+919876543210",
-    "content": "Test message from DIGIT!"
-  }'
+# Expected: All 16 tests pass
 ```
-
-### Baileys vs Novu
-
-| Mode | Use Case | Config |
-|------|----------|--------|
-| Baileys | Local testing, personal WhatsApp | `USE_BAILEYS=true` (default) |
-| Novu | Production, WhatsApp Business API | Set `NOVU_API_KEY`, unset `USE_BAILEYS` |
 
 ## Configuration
 
@@ -173,18 +224,225 @@ curl -X POST http://localhost:18203/baileys/send \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| USE_BAILEYS | true | Use Baileys for WhatsApp (local testing) |
-| BAILEYS_PROVIDER_URL | http://baileys-provider:8203 | Baileys service URL |
-| NOVU_API_KEY | - | Novu API key (for production) |
-| KAFKA_BROKERS | kafka:9092 | Kafka broker addresses |
-| KAFKA_TOPICS | pgr-create,pgr-update | Topics to consume |
+| `USE_BAILEYS` | `true` | Use Baileys for WhatsApp delivery |
+| `USE_NOVU_TEMPLATES` | `false` | Use Novu for template management |
+| `MOCK_MODE` | `false` | Log messages without sending |
+| `NOVU_API_KEY` | - | Novu API key (required for Novu mode) |
+| `KAFKA_BROKERS` | `kafka:9092` | Kafka broker addresses |
+| `KAFKA_TOPICS` | `pgr-create,pgr-update` | Topics to consume |
 
-### Novu Setup
+### Kong API Gateway
 
-1. Access Novu Dashboard at http://localhost:14200
-2. Create account and get API key
-3. Set `NOVU_API_KEY` in `.env` or docker-compose
-4. Create workflows for each event type (PGR_CREATED, etc.)
+All services are exposed through Kong at port 18000:
+
+| Path | Service | Auth Required |
+|------|---------|---------------|
+| `/baileys/*` | Baileys Provider | Yes (X-API-Key) |
+| `/novu-bridge/*` | Novu Bridge | Yes |
+| `/user-preferences/*` | User Preferences | Yes |
+| `/notification-config/*` | Config Service | Yes |
+| `/baileys/qr/*` | QR Code Pages | No |
+| `/baileys/health` | Health Check | No |
+
+**API Key:** `digit-dev-api-key-change-me` (change in production!)
+
+## API Reference
+
+### Health Checks
+
+```bash
+# All services
+curl http://localhost:18200/user-preferences/health
+curl http://localhost:18201/configs/health
+curl http://localhost:18202/novu-bridge/health
+curl http://localhost:18203/baileys/health
+```
+
+### User Preferences
+
+```bash
+# Create/Update user preference
+curl -X POST http://localhost:18200/user-preferences/v1/_upsert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "preference": {
+      "userId": "user-123",
+      "tenantId": "pg.citya",
+      "preferenceCode": "USER_NOTIFICATION_PREFERENCES",
+      "payload": {
+        "preferredLanguage": "en_IN",
+        "consent": {
+          "WHATSAPP": {"status": "GRANTED"}
+        }
+      }
+    }
+  }'
+
+# Search preferences
+curl -X POST http://localhost:18200/user-preferences/v1/_search \
+  -H "Content-Type: application/json" \
+  -d '{"criteria": {"userId": "user-123", "tenantId": "pg.citya"}}'
+```
+
+### Config Service
+
+```bash
+# Create config
+curl -X POST http://localhost:18201/configs/v1/_create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config": {
+      "tenantId": "pg.citya",
+      "namespace": "notification-orchestrator",
+      "configName": "My Template",
+      "configCode": "TEMPLATE_CUSTOM",
+      "content": {"templates": {"en_IN": "Hello {{name}}!"}}
+    }
+  }'
+
+# Search configs
+curl -X POST http://localhost:18201/configs/v1/_search \
+  -H "Content-Type: application/json" \
+  -d '{"criteria": {"tenantId": "pg.citya", "namespace": "notification-orchestrator"}}'
+```
+
+### Trigger Notification
+
+```bash
+curl -X POST http://localhost:18202/novu-bridge/v1/_trigger \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventType": "PGR_CREATE",
+    "tenantId": "pg.citya",
+    "recipient": {
+      "userId": "user-123",
+      "phone": "919876543210"
+    },
+    "data": {
+      "serviceRequestId": "PGR-2026-00001",
+      "serviceCode": "StreetLight",
+      "address": "Main Road, City Center",
+      "createdTime": "2026-01-15 10:30 AM"
+    }
+  }'
+```
+
+### Baileys Provider
+
+```bash
+# Check WhatsApp status
+curl http://localhost:18203/baileys/status
+
+# Send direct message
+curl -X POST http://localhost:18203/baileys/send \
+  -H "Content-Type: application/json" \
+  -d '{"to": "919876543210", "content": "Hello from DIGIT!"}'
+
+# Disconnect WhatsApp
+curl -X POST http://localhost:18203/baileys/disconnect
+
+# Reconnect
+curl -X POST http://localhost:18203/baileys/reconnect
+```
+
+## Testing
+
+### Run E2E Tests
+
+```bash
+# Direct service access
+./scripts/e2e-tests.sh
+
+# Through Kong gateway
+./scripts/e2e-tests.sh --via-kong
+```
+
+### Test Coverage
+
+| Section | Tests |
+|---------|-------|
+| Health Checks | 4 tests |
+| Config Service | 3 tests |
+| User Preferences | 3 tests |
+| Baileys Provider | 3 tests |
+| Novu Bridge | 3 tests |
+| **Total** | **16 tests** |
+
+### Manual Testing
+
+```bash
+# 1. Check all services are healthy
+curl http://localhost:18202/novu-bridge/health
+
+# 2. Create a user with consent
+# (see Step 5 above)
+
+# 3. Trigger a notification
+curl -X POST http://localhost:18202/novu-bridge/v1/_trigger \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventType": "PGR_CREATE",
+    "tenantId": "pg.citya",
+    "recipient": {"phone": "YOUR_PHONE_NUMBER"},
+    "data": {"serviceRequestId": "TEST-001", "serviceCode": "Test"}
+  }'
+
+# 4. Check your WhatsApp for the message!
+```
+
+## Troubleshooting
+
+### WhatsApp Not Connecting
+
+```bash
+# Check Baileys logs
+docker logs baileys-provider -f
+
+# Common issues:
+# - QR code expired: Refresh the QR page
+# - Session corrupted: Delete auth_info volume and reconnect
+docker compose down
+docker volume rm digit-bidirectional-wa_baileys_auth
+docker compose up -d
+```
+
+### Notification Not Sending
+
+```bash
+# Check novu-bridge logs
+docker logs digit-novu-bridge -f
+
+# Common issues:
+# - User consent not granted: Create preference with WHATSAPP.status = "GRANTED"
+# - Event not enabled: Check EVENT_CHANNELS config
+# - Template not found: Run seed-configs.sh
+```
+
+### Services Not Starting
+
+```bash
+# Check all container status
+docker compose ps
+
+# View logs for specific service
+docker compose logs -f digit-config-service
+
+# Restart all services
+docker compose restart
+```
+
+### Database Issues
+
+```bash
+# Connect to Postgres
+docker exec -it docker-postgres psql -U egov -d egov
+
+# Check tables
+\dt
+
+# View configs
+SELECT * FROM notification_configs LIMIT 5;
+```
 
 ## Design Documents
 
@@ -193,3 +451,7 @@ curl -X POST http://localhost:18203/baileys/send \
 - [API specifications/](./API%20specifications/) - OpenAPI specs
 - [ER diagrams/](./ER%20diagrams/) - Database schemas
 - [Sequence Diagrams/](./Sequence%20Diagrams/) - Flow diagrams
+
+## License
+
+MIT
