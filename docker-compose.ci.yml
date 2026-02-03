@@ -1,0 +1,161 @@
+# Minimal docker-compose for CI testing
+# Only includes services needed for E2E tests
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: docker-postgres
+    environment:
+      POSTGRES_USER: egov
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      POSTGRES_DB: egov
+    ports:
+      - 15432:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U egov"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - egov-network
+
+  redis:
+    image: redis:7.2.4
+    container_name: sdcrs-redis
+    ports:
+      - 16379:6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - egov-network
+
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: sdcrs-kafka
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+    ports:
+      - 19092:9092
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+    networks:
+      - egov-network
+
+  # WhatsApp Notification Services
+  digit-user-preferences:
+    build:
+      context: ./services/digit-user-preferences
+      dockerfile: Dockerfile
+    container_name: digit-user-preferences
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov
+      SERVER_PORT: 8200
+    ports:
+      - "18200:8200"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8200/user-preferences/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - egov-network
+
+  digit-config-service:
+    build:
+      context: ./services/digit-config-service
+      dockerfile: Dockerfile
+    container_name: digit-config-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov
+      SERVER_PORT: 8201
+    ports:
+      - "18201:8201"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8201/configs/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - egov-network
+
+  digit-novu-bridge:
+    build:
+      context: ./services/digit-novu-bridge
+      dockerfile: Dockerfile
+    container_name: digit-novu-bridge
+    depends_on:
+      kafka:
+        condition: service_healthy
+      digit-config-service:
+        condition: service_healthy
+      digit-user-preferences:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8202
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_GROUP_ID: digit-novu-bridge
+      KAFKA_TOPICS: pgr-create,pgr-update,pgr-status-change
+      CONFIG_SERVICE_URL: http://digit-config-service:8201
+      USER_PREFERENCES_URL: http://digit-user-preferences:8200
+      BAILEYS_PROVIDER_URL: http://baileys-provider:8203
+      USE_BAILEYS: "true"
+      USE_NOVU_TEMPLATES: "false"
+    ports:
+      - "18202:8202"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8202/novu-bridge/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - egov-network
+
+  baileys-provider:
+    build:
+      context: ./services/baileys-provider
+      dockerfile: Dockerfile
+    container_name: baileys-provider
+    environment:
+      SERVER_PORT: 8203
+      AUTH_DIR: /app/auth_info
+      MOCK_MODE: "true"
+    ports:
+      - "18203:8203"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8203/baileys/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - egov-network
+
+networks:
+  egov-network:
+    driver: bridge

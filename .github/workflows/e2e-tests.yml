@@ -29,7 +29,7 @@ jobs:
 
       - name: Start services
         run: |
-          docker compose up -d
+          docker compose -f docker-compose.ci.yml up -d --build
           echo "Waiting for services to start..."
 
       - name: Wait for services to be healthy
@@ -110,13 +110,13 @@ jobs:
         if: failure()
         run: |
           echo "=== Docker Compose Logs ==="
-          docker compose logs --tail=100
+          docker compose -f docker-compose.ci.yml logs --tail=100
 
           echo ""
           echo "=== Container Status ==="
-          docker compose ps
+          docker compose -f docker-compose.ci.yml ps
 
       - name: Cleanup
         if: always()
         run: |
-          docker compose down -v
+          docker compose -f docker-compose.ci.yml down -v

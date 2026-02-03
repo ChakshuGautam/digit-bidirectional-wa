@@ -726,7 +726,7 @@ services:
   # ===========================================================================
   digit-user-preferences:
     build:
-      context: ./whatsapp/services/digit-user-preferences
+      context: ./services/digit-user-preferences
       dockerfile: Dockerfile
     container_name: digit-user-preferences
     depends_on:
@@ -736,7 +736,7 @@ services:
       DATABASE_URL: postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov
       SERVER_PORT: 8200
     volumes:
-      - ./whatsapp/services/digit-user-preferences/src:/app/src:ro
+      - ./services/digit-user-preferences/src:/app/src:ro
     ports:
       - "18200:8200"
     healthcheck:
@@ -750,7 +750,7 @@ services:
 
   digit-config-service:
     build:
-      context: ./whatsapp/services/digit-config-service
+      context: ./services/digit-config-service
       dockerfile: Dockerfile
     container_name: digit-config-service
     depends_on:
@@ -760,7 +760,7 @@ services:
       DATABASE_URL: postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov
       SERVER_PORT: 8201
     volumes:
-      - ./whatsapp/services/digit-config-service/src:/app/src:ro
+      - ./services/digit-config-service/src:/app/src:ro
     ports:
       - "18201:8201"
     healthcheck:
@@ -774,7 +774,7 @@ services:
 
   digit-novu-bridge:
     build:
-      context: ./whatsapp/services/digit-novu-bridge
+      context: ./services/digit-novu-bridge
       dockerfile: Dockerfile
     container_name: digit-novu-bridge
     depends_on:
@@ -797,7 +797,7 @@ services:
       USE_BAILEYS: "${USE_BAILEYS:-false}"
       USE_NOVU_TEMPLATES: "${USE_NOVU_TEMPLATES:-true}"
     volumes:
-      - ./whatsapp/services/digit-novu-bridge/src:/app/src:ro
+      - ./services/digit-novu-bridge/src:/app/src:ro
     ports:
       - "18202:8202"
     healthcheck:
@@ -811,7 +811,7 @@ services:
 
   baileys-provider:
     build:
-      context: ./whatsapp/services/baileys-provider
+      context: ./services/baileys-provider
       dockerfile: Dockerfile
     container_name: baileys-provider
     environment:
@@ -821,7 +821,7 @@ services:
       # Set to "false" and scan QR at /baileys/qr/page for real messages
       MOCK_MODE: "${MOCK_MODE:-true}"
     volumes:
-      - ./whatsapp/services/baileys-provider/src:/app/src:ro
+      - ./services/baileys-provider/src:/app/src:ro
       - baileys_auth:/app/auth_info
     ports:
       - "18203:8203"
