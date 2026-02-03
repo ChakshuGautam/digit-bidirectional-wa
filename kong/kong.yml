@@ -1,0 +1,521 @@
+_format_version: "3.0"
+_transform: true
+
+# =============================================================================
+# DIGIT Core Services - Kong API Gateway Configuration
+# =============================================================================
+# This declarative config exposes DIGIT services securely via Kong.
+#
+# Authentication: API Key (X-API-Key header)
+# Rate Limiting: Applied per-consumer
+# CORS: Enabled for all origins (configure for production)
+#
+# External URL pattern: http://localhost:8000/<service-path>
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Consumers (API clients)
+# -----------------------------------------------------------------------------
+consumers:
+  - username: digit-dev
+    keyauth_credentials:
+      - key: digit-dev-api-key-change-me
+    tags:
+      - development
+
+  - username: digit-admin
+    keyauth_credentials:
+      - key: digit-admin-api-key-change-me
+    tags:
+      - admin
+
+# -----------------------------------------------------------------------------
+# Global Plugins
+# -----------------------------------------------------------------------------
+plugins:
+  # CORS - Allow cross-origin requests
+  # Note: credentials must be false when using wildcard origins
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-Type
+        - Authorization
+        - X-API-Key
+        - X-Requested-With
+        - auth-token
+      exposed_headers:
+        - X-Auth-Token
+      credentials: false
+      max_age: 3600
+
+  # Request size limit (10MB)
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 10
+      size_unit: megabytes
+
+# -----------------------------------------------------------------------------
+# Services and Routes
+# -----------------------------------------------------------------------------
+
+services:
+  # ===========================================================================
+  # MDMS Service - Master Data Management
+  # ===========================================================================
+  - name: mdms-service
+    url: http://egov-mdms-service:8094
+    tags:
+      - core
+    routes:
+      - name: mdms-route
+        paths:
+          - /mdms-v2
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+            - apikey
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ===========================================================================
+  # User Service - Authentication & User Management
+  # ===========================================================================
+  - name: user-service
+    url: http://egov-user:8107
+    tags:
+      - core
+      - auth
+    routes:
+      - name: user-route
+        paths:
+          - /user
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+            - apikey
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 60
+          policy: local
+
+  # Public auth endpoints (no API key required)
+  - name: user-auth-public
+    url: http://egov-user:8107
+    tags:
+      - core
+      - auth
+      - public
+    routes:
+      - name: user-oauth-route
+        paths:
+          - /user/oauth/token
+        strip_path: false
+        methods:
+          - POST
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 10
+          policy: local
+
+  # ===========================================================================
+  # Encryption Service
+  # ===========================================================================
+  - name: enc-service
+    url: http://egov-enc-service:1234
+    tags:
+      - core
+      - security
+    routes:
+      - name: enc-route
+        paths:
+          - /egov-enc-service
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ===========================================================================
+  # ID Generation Service
+  # ===========================================================================
+  - name: idgen-service
+    url: http://egov-idgen:8088
+    tags:
+      - core
+    routes:
+      - name: idgen-route
+        paths:
+          - /egov-idgen
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 200
+          policy: local
+
+  # ===========================================================================
+  # Workflow Service
+  # ===========================================================================
+  - name: workflow-service
+    url: http://egov-workflow-v2:8109
+    tags:
+      - core
+    routes:
+      - name: workflow-route
+        paths:
+          - /egov-workflow-v2
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ===========================================================================
+  # Localization Service
+  # ===========================================================================
+  - name: localization-service
+    url: http://egov-localization:8096
+    tags:
+      - core
+    routes:
+      - name: localization-route
+        paths:
+          - /localization
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ===========================================================================
+  # Location Service (Legacy boundaries)
+  # ===========================================================================
+  - name: location-service
+    url: http://egov-location:8084
+    tags:
+      - core
+    routes:
+      - name: location-route
+        paths:
+          - /egov-location
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ===========================================================================
+  # Boundary Service v2
+  # ===========================================================================
+  - name: boundary-service
+    url: http://boundary-service:8081
+    tags:
+      - core
+    routes:
+      - name: boundary-route
+        paths:
+          - /boundary-service
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ===========================================================================
+  # Access Control Service (RBAC)
+  # ===========================================================================
+  - name: accesscontrol-service
+    url: http://egov-accesscontrol:8090
+    tags:
+      - core
+      - security
+    routes:
+      - name: accesscontrol-route
+        paths:
+          - /access
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # ===========================================================================
+  # Persister Service (internal - more restrictive)
+  # ===========================================================================
+  - name: persister-service
+    url: http://egov-persister:8091
+    tags:
+      - core
+      - internal
+    routes:
+      - name: persister-route
+        paths:
+          - /common-persist
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 50
+          policy: local
+
+  # ===========================================================================
+  # Health Check Endpoints (Public - no auth)
+  # ===========================================================================
+  - name: health-mdms
+    url: http://egov-mdms-service:8094
+    routes:
+      - name: health-mdms-route
+        paths:
+          - /health/mdms
+        strip_path: true
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /mdms-v2/health
+
+  - name: health-user
+    url: http://egov-user:8107
+    routes:
+      - name: health-user-route
+        paths:
+          - /health/user
+        strip_path: true
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /user/health
+
+  - name: health-workflow
+    url: http://egov-workflow-v2:8109
+    routes:
+      - name: health-workflow-route
+        paths:
+          - /health/workflow
+        strip_path: true
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /egov-workflow-v2/health
+
+  - name: health-boundary
+    url: http://boundary-service:8081
+    routes:
+      - name: health-boundary-route
+        paths:
+          - /health/boundary
+        strip_path: true
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /boundary-service/actuator/health
+
+  # ===========================================================================
+  # WhatsApp / Notification Services
+  # ===========================================================================
+
+  # Baileys Provider - WhatsApp Web API
+  - name: baileys-provider
+    url: http://baileys-provider:8203
+    tags:
+      - whatsapp
+      - notifications
+    routes:
+      - name: baileys-route
+        paths:
+          - /baileys
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 60
+          policy: local
+
+  # Baileys QR Page - Public (no auth for scanning)
+  - name: baileys-qr-public
+    url: http://baileys-provider:8203
+    tags:
+      - whatsapp
+      - public
+    routes:
+      - name: baileys-qr-route
+        paths:
+          - /baileys/qr
+        strip_path: false
+
+  # Baileys Health - Public
+  - name: baileys-health
+    url: http://baileys-provider:8203
+    tags:
+      - whatsapp
+      - health
+    routes:
+      - name: baileys-health-route
+        paths:
+          - /baileys/health
+          - /baileys/actuator/health
+        strip_path: false
+
+  # Baileys Novu Webhook - Called by Novu Chat Webhook provider
+  - name: baileys-novu-webhook
+    url: http://baileys-provider:8203
+    tags:
+      - whatsapp
+      - novu
+    routes:
+      - name: baileys-novu-webhook-route
+        paths:
+          - /baileys/novu-webhook
+        strip_path: false
+        methods:
+          - POST
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+            - X-Novu-Signature
+          hide_credentials: true
+
+  # User Preferences Service
+  - name: user-preferences-service
+    url: http://digit-user-preferences:8200
+    tags:
+      - whatsapp
+      - notifications
+    routes:
+      - name: user-preferences-route
+        paths:
+          - /user-preferences
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # Config Service (Templates/Policies)
+  - name: digit-config-service
+    url: http://digit-config-service:8201
+    tags:
+      - whatsapp
+      - notifications
+    routes:
+      - name: config-service-route
+        paths:
+          - /notification-config
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  # Novu Bridge Service
+  - name: novu-bridge-service
+    url: http://digit-novu-bridge:8202
+    tags:
+      - whatsapp
+      - notifications
+    routes:
+      - name: novu-bridge-route
+        paths:
+          - /novu-bridge
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
