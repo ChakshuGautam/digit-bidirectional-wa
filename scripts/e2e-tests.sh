@@ -192,9 +192,9 @@ TEST_NAMESPACE="notification-orchestrator"
 # Test 2.1: Create Config
 log_test "2.1 Create Config"
 if $USE_KONG; then
-  URL="${BASE_URL}/notification-config/v1/_upsert"
+  URL="${BASE_URL}/notification-config/v1/_create"
 else
-  URL="${CONFIG_SERVICE_URL}/configs/v1/_upsert"
+  URL="${CONFIG_SERVICE_URL}/configs/v1/_create"
 fi
 response=$(do_curl -X POST "$URL" \
   -H "Content-Type: application/json" \
@@ -244,9 +244,9 @@ fi
 # Test 2.3: Update Config
 log_test "2.3 Update Config"
 if $USE_KONG; then
-  URL="${BASE_URL}/notification-config/v1/_upsert"
+  URL="${BASE_URL}/notification-config/v1/_update"
 else
-  URL="${CONFIG_SERVICE_URL}/configs/v1/_upsert"
+  URL="${CONFIG_SERVICE_URL}/configs/v1/_update"
 fi
 response=$(do_curl -X POST "$URL" \
   -H "Content-Type: application/json" \
