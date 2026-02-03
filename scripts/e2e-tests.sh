@@ -202,6 +202,7 @@ response=$(do_curl -X POST "$URL" \
     \"config\": {
       \"tenantId\": \"$TEST_TENANT\",
       \"namespace\": \"$TEST_NAMESPACE\",
+      \"configName\": \"Test Config\",
       \"configCode\": \"TEST_CONFIG\",
       \"content\": {
         \"testKey\": \"testValue\",
@@ -254,6 +255,7 @@ response=$(do_curl -X POST "$URL" \
     \"config\": {
       \"tenantId\": \"$TEST_TENANT\",
       \"namespace\": \"$TEST_NAMESPACE\",
+      \"configName\": \"Test Config Updated\",
       \"configCode\": \"TEST_CONFIG\",
       \"content\": {
         \"testKey\": \"updatedValue\",
